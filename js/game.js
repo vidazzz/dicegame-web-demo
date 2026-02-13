@@ -832,6 +832,7 @@ class Game {
 
     // 渲染状态栏
     renderStatus() {
+        document.getElementById('score-display').textContent = `得分: ${this.totalScore}`;
         document.getElementById('action-points').textContent = `行动点: ${this.actionPoints}`;
 
         let phaseText = '-';
