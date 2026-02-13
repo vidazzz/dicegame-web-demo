@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>骰子事件游戏</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="game-container">
+        <header>
+            <div>
+                <h1>骰子事件游戏</h1>
+                <div id="game-status" style="margin-top: 10px;">
+                    <span id="action-points">行动点: 10</span>
+                    <span id="current-phase">阶段: -</span>
+                    <span id="fever-status">Fever: -</span>
+                </div>
+            </div>
+            <div id="npc-panel">
+                <h3>NPC</h3>
+                <div id="npc-list"></div>
+            </div>
+        </header>
+
+        <main id="game-main">
+            <!-- 游戏内容会动态渲染在这里 -->
+            <div class="welcome-screen">
+                <h2>欢迎来到骰子事件游戏</h2>
+                <p>这是一个玩法原型，用于验证核心机制</p>
+                <button id="start-game">开始游戏</button>
+            </div>
+        </main>
+
+        <aside id="game-sidebar">
+            <div id="game-log">
+                <h3>游戏日志</h3>
+                <div id="log-content"></div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="js/npc.js"></script>
+    <script src="js/intel.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
