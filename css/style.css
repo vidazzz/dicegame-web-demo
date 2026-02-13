@@ -33,6 +33,16 @@ header {
     gap: 30px;
 }
 
+/* PC端游戏主体左右布局 */
+.game-body {
+    display: contents;
+}
+
+#game-sidebar {
+    grid-column: 2;
+    grid-row: 2;
+}
+
 header #game-status {
     flex-shrink: 0;
 }
@@ -409,4 +419,207 @@ button.cancel-btn:hover {
 .score-display .final {
     color: #f9ed69;
     font-size: 48px;
+}
+
+/* 移动端适配 - 日志在左，游戏在右 */
+@media screen and (max-width: 768px) {
+    body {
+        font-size: 14px;
+    }
+
+    #game-container {
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+        gap: 10px;
+    }
+
+    header {
+        flex-direction: column;
+        gap: 15px;
+        padding: 15px;
+        order: 1;
+    }
+
+    header h1 {
+        font-size: 20px;
+    }
+
+    #game-status {
+        flex-wrap: wrap;
+        gap: 10px;
+        font-size: 14px;
+    }
+
+    #game-status span {
+        padding: 6px 10px;
+        font-size: 13px;
+    }
+
+    header #npc-panel h3 {
+        font-size: 13px;
+    }
+
+    header .npc-card {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    header .npc-card .name {
+        font-size: 13px;
+    }
+
+    header .npc-card .info {
+        font-size: 10px;
+    }
+
+    /* 游戏主区域和日志左右分布 */
+    .game-body {
+        display: flex;
+        gap: 8px;
+        flex: 1;
+        order: 2;
+    }
+
+    #game-sidebar {
+        width: 150px;
+        flex-shrink: 0;
+        padding: 8px;
+        order: 1;
+    }
+
+    #game-log {
+        min-height: 120px;
+        padding: 8px;
+    }
+
+    #game-sidebar h3 {
+        font-size: 12px;
+    }
+
+    #log-content {
+        font-size: 10px;
+        line-height: 1.4;
+    }
+
+    #game-main {
+        flex: 1;
+        padding: 10px;
+        order: 2;
+    }
+
+    .welcome-screen {
+        padding: 20px 10px;
+    }
+
+    .welcome-screen h2 {
+        font-size: 18px;
+    }
+
+    .welcome-screen button {
+        padding: 10px 24px;
+        font-size: 14px;
+    }
+
+    .intel-card {
+        padding: 8px;
+        margin-bottom: 8px;
+    }
+
+    .intel-card .intel-name {
+        font-size: 13px;
+    }
+
+    .intel-card .intel-score {
+        font-size: 12px;
+    }
+
+    .intel-card .intel-header {
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .intel-card .intel-numbers {
+        gap: 4px;
+        margin-top: 6px;
+    }
+
+    .intel-number {
+        width: 22px;
+        height: 22px;
+        line-height: 22px;
+        font-size: 12px;
+    }
+
+    /* 骰子缩小一倍 */
+    .dice {
+        width: 24px;
+        height: 24px;
+        font-size: 14px;
+    }
+
+    .dice-display {
+        gap: 6px;
+        margin: 10px 0;
+    }
+
+    .player-actions {
+        padding: 10px;
+        margin-top: 10px;
+    }
+
+    .player-actions h4 {
+        font-size: 14px;
+        margin-bottom: 10px;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .action-buttons button {
+        width: 100%;
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    .result-panel {
+        padding: 15px 10px;
+    }
+
+    .result-panel h2 {
+        font-size: 20px;
+    }
+
+    .score-display {
+        font-size: 28px;
+        margin: 20px 0;
+    }
+
+    .score-display .base {
+        font-size: 14px;
+    }
+
+    .score-display .final {
+        font-size: 28px;
+    }
+
+    .phase-header {
+        padding: 10px;
+        margin-bottom: 8px;
+    }
+
+    .phase-title {
+        font-size: 14px;
+    }
+
+    /* 日志中的骰子图案 */
+    #log-content .dice-char {
+        vertical-align: middle;
+    }
+
+    /* 情报卡片中的骰子图案 */
+    .intel-numbers .dice-char {
+    }
 }

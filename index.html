@@ -23,21 +23,23 @@
             </div>
         </header>
 
-        <main id="game-main">
-            <!-- 游戏内容会动态渲染在这里 -->
-            <div class="welcome-screen">
-                <h2>欢迎来到骰子事件游戏</h2>
-                <p>这是一个玩法原型，用于验证核心机制</p>
-                <button id="start-game">开始游戏</button>
-            </div>
-        </main>
+        <div class="game-body">
+            <aside id="game-sidebar">
+                <div id="game-log">
+                    <h3>游戏日志</h3>
+                    <div id="log-content"></div>
+                </div>
+            </aside>
 
-        <aside id="game-sidebar">
-            <div id="game-log">
-                <h3>游戏日志</h3>
-                <div id="log-content"></div>
-            </div>
-        </aside>
+            <main id="game-main">
+                <!-- 游戏内容会动态渲染在这里 -->
+                <div class="welcome-screen">
+                    <h2>欢迎来到骰子事件游戏</h2>
+                    <p>这是一个玩法原型，用于验证核心机制</p>
+                    <button id="start-game">开始游戏</button>
+                </div>
+            </main>
+        </div>
     </div>
 
     <script src="js/npc.js"></script>

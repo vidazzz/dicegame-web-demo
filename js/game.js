@@ -443,14 +443,17 @@ class Game {
         const diceResults = [playerDice];
 
         // 显示玩家投骰子结果
-        this.log(`投骰子: 玩家 ${playerDice}`, 'info');
+        const colors = ['#ff6b6b', '#feca57', '#48dbfb', '#1dd1a1', '#ff9ff3', '#54a0ff'];
+        const diceDisplay = `<span style="color: ${colors[playerDice - 1]}; font-weight: bold;">${playerDice}</span>`;
+        this.log(`<span style="color: #fff;">玩家投出骰子:</span> ${diceDisplay}`, 'info');
 
         // 获取已勾选的 NPC 骰子（UI 预判定成功才能勾选）
         selectedNpcs.forEach(npcName => {
             const npc = this.npcs.find(n => n.name === npcName);
             if (npc && npc.number !== null) {
                 diceResults.push(npc.number);
-                this.log(`投骰子: ${npc.name} ${npc.number}`, 'info');
+                const npcDiceDisplay = `<span style="color: ${colors[npc.number - 1]}; font-weight: bold;">${npc.number}</span>`;
+                this.log(`加成投骰: ${npc.name} ${npcDiceDisplay}`, 'info');
                 npc.refreshNumber();
             }
         });
@@ -501,14 +504,17 @@ class Game {
         const diceResults = [playerDice];
 
         // 显示玩家投骰子结果
-        this.log(`加成投骰: 玩家 ${playerDice}`, 'info');
+        const colors = ['#ff6b6b', '#feca57', '#48dbfb', '#1dd1a1', '#ff9ff3', '#54a0ff'];
+        const diceDisplay = `<span style="color: ${colors[playerDice - 1]}; font-weight: bold;">${playerDice}</span>`;
+        this.log(`<span style="color: #fff;">玩家投出骰子:</span> ${diceDisplay}`, 'info');
 
         // 获取已勾选的 NPC 骰子（UI 预判定成功才能勾选）
         selectedNpcs.forEach(npcName => {
             const npc = this.npcs.find(n => n.name === npcName);
             if (npc && npc.number !== null) {
                 diceResults.push(npc.number);
-                this.log(`加成投骰: ${npc.name} ${npc.number}`, 'info');
+                const npcDiceDisplay = `<span style="color: ${colors[npc.number - 1]}; font-weight: bold;">${npc.number}</span>`;
+                this.log(`加成投骰: ${npc.name} ${npcDiceDisplay}`, 'info');
                 npc.refreshNumber();
             }
         });
@@ -564,14 +570,17 @@ class Game {
         const diceResults = [playerDice];
 
         // 显示玩家投骰子结果
-        this.log(`投骰子: 玩家 ${playerDice}`, 'info');
+        const colors = ['#ff6b6b', '#feca57', '#48dbfb', '#1dd1a1', '#ff9ff3', '#54a0ff'];
+        const diceDisplay = `<span style="color: ${colors[playerDice - 1]}; font-weight: bold;">${playerDice}</span>`;
+        this.log(`<span style="color: #fff;">玩家投出骰子:</span> ${diceDisplay}`, 'info');
 
         // 获取已勾选的 NPC 骰子（UI 预判定成功才能勾选）
         selectedNpcs.forEach(npcName => {
             const npc = this.npcs.find(n => n.name === npcName);
             if (npc && npc.number !== null) {
                 diceResults.push(npc.number);
-                this.log(`投骰子: ${npc.name} ${npc.number}`, 'info');
+                const npcDiceDisplay = `<span style="color: ${colors[npc.number - 1]}; font-weight: bold;">${npc.number}</span>`;
+                this.log(`加成投骰: ${npc.name} ${npcDiceDisplay}`, 'info');
                 npc.refreshNumber();
             }
         });
@@ -771,7 +780,7 @@ class Game {
     renderDice(number, size = 20) {
         const diceChars = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
         const colors = ['#ff6b6b', '#feca57', '#48dbfb', '#1dd1a1', '#ff9ff3', '#54a0ff'];
-        return `<span style="font-size: ${size}px; color: ${colors[number - 1]};">${diceChars[number - 1]}</span>`;
+        return `<span class="dice-char" style="font-size: ${size}px; color: ${colors[number - 1]};">${diceChars[number - 1]}</span>`;
     }
 
     // 渲染一组骰子为骰子
@@ -779,16 +788,16 @@ class Game {
         return numbers.map(n => this.renderDice(n, size)).join('');
     }
 
-    // 将消息中的骰子转换为骰子图标
+    // 将消息中的骰子转换为数字（保留颜色）
     convertDiceInMessage(message) {
-        const diceChars = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+        const diceNums = ['1', '2', '3', '4', '5', '6'];
         const colors = ['#ff6b6b', '#feca57', '#48dbfb', '#1dd1a1', '#ff9ff3', '#54a0ff'];
-        // 只在"情报骰子:"和"投出"后面转换1-6的数字为骰子图标
+        // 只在"情报骰子:"和"投出"后面转换1-6的数字
         return message.replace(/(情报骰子:|投出)\s*([1-6](?:\s*,\s*[1-6])*)/g, (match, prefix) => {
             const numbers = match.replace(prefix, '').trim().split(/\s*,\s*/);
             const diceHtml = numbers.map(n => {
                 const num = parseInt(n) - 1;
-                return `<span style="font-size: 48px; color: ${colors[num]};">${diceChars[num]}</span>`;
+                return `<span class="dice-char" style="color: ${colors[num]}; font-weight: bold;">${diceNums[num]}</span>`;
             }).join('');
             return `${prefix}${diceHtml}`;
         });
@@ -851,7 +860,7 @@ class Game {
         this.npcs.forEach(npc => {
             const card = document.createElement('div');
             card.className = 'npc-card';
-            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 24) : '<span style="font-size: 24px; color: #888;">?</span>';
+            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
             const rateDisplay = npc.intelRate !== npc.baseIntelRate ?
                 `初始: ${npc.baseIntelRate}% | 收集: ${npc.intelRate}%` :
                 `好感度: ${npc.baseIntelRate}%`;
@@ -985,7 +994,7 @@ class Game {
             // 生成 NPC 复选框用于告知情报
             const npcCheckboxes = this.npcs.map(npc => {
                 const isKnower = intel.knowers.includes(npc.name);
-                const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 40) : '<span style="font-size: 40px; color: #888;">?</span>';
+                const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
                 return `
                     <label style="display: inline-flex; align-items: center; margin: 3px 8px; padding: 3px 8px; background: #0f3460; border-radius: 4px; cursor: pointer;">
                         <input type="checkbox" name="share-${intel.id}" value="${npc.name}" ${isKnower ? 'disabled style="opacity: 0.5;"' : ''}>
@@ -1178,7 +1187,7 @@ class Game {
             }
 
             const disabled = !canUse ? 'disabled style="opacity: 0.5;"' : '';
-            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 48) : '<span style="font-size: 48px; color: #888;">?</span>';
+            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
             return `
                 <label style="display: inline-flex; align-items: center; margin: 5px 10px; padding: 5px 10px; background: #0f3460; border-radius: 4px; cursor: ${canUse ? 'pointer' : 'not-allowed'}; vertical-align: middle;">
                     <input type="checkbox" name="event-npc-select" value="${npc.name}" ${disabled}>
@@ -1219,9 +1228,6 @@ class Game {
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                             <button class="action-btn" onclick="game.handleSelectedGoodIntel('${intel.id}')" style="flex: 1; min-width: 120px;">
                                 投骰子加成
-                            </button>
-                            <button class="action-btn" onclick="game.backToGoodIntelSelection()" style="flex: 0 0 auto;">
-                                返回选择
                             </button>
                         </div>
                         <p style="font-size: 11px; color: #888; margin-top: 10px;">
@@ -1337,7 +1343,7 @@ class Game {
 
             const disabled = !canUse ? 'disabled style="opacity: 0.5;"' : '';
 
-            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 48) : '<span style="font-size: 48px; color: #888;">?</span>';
+            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
             return `
                 <label style="display: inline-flex; align-items: center; margin: 5px 10px; padding: 5px 10px; background: #0f3460; border-radius: 4px; cursor: ${canUse ? 'pointer' : 'not-allowed'}; vertical-align: middle;">
                     <input type="checkbox" name="event-npc-select" value="${npc.name}" ${disabled}>
