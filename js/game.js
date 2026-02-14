@@ -48,6 +48,9 @@ class Game {
         this.processedIntelsInProcessStage = new Set();  // 处理阶段使用：标记已处理的情报（不影响交涉阶段）
         this.knownKnowers = new Map(); // 玩家已知的情报知情人
         this.interactedNPCs = new Set(); // 已交互过的 NPC
+        this.pendingShares = new Map(); // 等待确认的告知列表: intelId -> [npcNames]
+        this.selectedNPCsForEvent = new Set(); // EVENT阶段选中的NPC
+        this.selectedGoodIntelId = null; // 有利情报阶段当前选中的情报ID
 
         this.intelGenerator = new IntelGenerator();
 
@@ -244,6 +247,51 @@ class Game {
         this.render();
     }
 
+    // 处理情报处理阶段 NPC 勾选变化（即时扣减行动点）
+    handleShareCheckboxChange(intelId, npcName, isChecked) {
+        if (isChecked) {
+            // 勾选：检查行动点
+            if (this.actionPoints <= 0) {
+                // 行动点不足，取消勾选
+                const checkbox = document.querySelector(`input[name="share-${intelId}"][value="${npcName}"]`);
+                if (checkbox) checkbox.checked = false;
+                this.log('行动点不足！', 'fail');
+                return false;
+            }
+            // 扣除1点行动点
+            this.actionPoints--;
+            // 记录到 pendingShares
+            if (!this.pendingShares.has(intelId)) {
+                this.pendingShares.set(intelId, []);
+            }
+            this.pendingShares.get(intelId).push(npcName);
+            this.log(`勾选 ${npcName} 告知情报告知（已扣除1行动点）`, 'info');
+        } else {
+            // 取消勾选：返还行动点
+            this.actionPoints++;
+            // 从 pendingShares 中移除
+            if (this.pendingShares.has(intelId)) {
+                const npcs = this.pendingShares.get(intelId);
+                const index = npcs.indexOf(npcName);
+                if (index > -1) {
+                    npcs.splice(index, 1);
+                }
+            }
+            this.log(`取消勾选 ${npcName}（已返还1行动点）`, 'info');
+        }
+        this.renderStatus();
+        return true;
+    }
+
+    // EVENT阶段 NPC 勾选变化处理
+    handleEventNPCSelectionChange(npcName, isChecked) {
+        if (isChecked) {
+            this.selectedNPCsForEvent.add(npcName);
+        } else {
+            this.selectedNPCsForEvent.delete(npcName);
+        }
+    }
+
     // 告知NPC情报（支持多人）
     shareIntelToNPC(IntelId) {
         const intel = this.allIntels.find(i => i.id === IntelId);
@@ -292,6 +340,41 @@ class Game {
 
     // 进入话题执行阶段
     startTopic() {
+        // 获取当前话题的所有情报
+        const currentTopicIntels = this.getCurrentTopicIntels();
+        const shareResults = [];
+
+        // 使用 pendingShares 中记录的勾选来执行告知（行动点已在勾选时扣除）
+        currentTopicIntels.forEach(intel => {
+            const pendingNpcs = this.pendingShares.get(intel.id) || [];
+            pendingNpcs.forEach(npcName => {
+                if (!intel.knowers.includes(npcName)) {
+                    const npc = this.npcs.find(n => n.name === npcName);
+                    if (npc) {
+                        intel.addKnower(npcName);
+                        npc.addIntel(intel);
+                        shareResults.push({ npc: npcName, intel: intel.name });
+                    }
+                }
+            });
+        });
+
+        // 输出告知结果
+        if (shareResults.length > 0) {
+            const shareByNpc = {};
+            shareResults.forEach(({ npc, intel }) => {
+                if (!shareByNpc[npc]) shareByNpc[npc] = [];
+                shareByNpc[npc].push(intel);
+            });
+
+            for (const [npc, intels] of Object.entries(shareByNpc)) {
+                this.log(`已将 ${intels.length} 个情报告知 ${npc}`, 'success');
+            }
+        }
+
+        // 清空 pendingShares
+        this.pendingShares.clear();
+
         this.gamePhase = GAME_PHASE.EVENT;
 
         // 初始化卡牌游戏状态
@@ -301,7 +384,6 @@ class Game {
         this.bonusIntelId = null;
 
         // 重置当前话题情报的 isGood 状态（因为情报对象在生成时被共享）
-        const currentTopicIntels = this.getCurrentTopicIntels();
         currentTopicIntels.forEach(intel => {
             // 查找这个情报的原始状态（通过判断话题中不利情报的数量）
             // 不利情报一定是 !isGood，有利情报一定是 isGood
@@ -633,6 +715,19 @@ class Game {
         this.currentFeverMultiplier = 1.0 + (this.feverStreak - 1) * 0.1;
     }
 
+    // 获取当前显示分数
+    getDisplayScore() {
+        const feverBase = this.feverScores.reduce((a, b) => a + b, 0);
+        const feverTotal = feverBase * this.currentFeverMultiplier;
+        return {
+            settled: this.totalScore,
+            feverBase: feverBase,
+            feverMultiplier: this.currentFeverMultiplier,
+            feverTotal: feverTotal,
+            display: Math.floor(this.totalScore + feverTotal)
+        };
+    }
+
     // 退出 Fever 状态
     exitFever() {
         if (this.feverActive && this.feverScores.length > 0) {
@@ -663,6 +758,15 @@ class Game {
         // 结算当前话题的 Fever
         this.exitFever();
 
+        // 清理待告知的 NPC 勾选状态（返还行动点）
+        this.pendingShares.clear();
+
+        // 清理 EVENT 阶段选中的 NPC
+        this.selectedNPCsForEvent.clear();
+
+        // 清理选中的有利情报
+        this.selectedGoodIntelId = null;
+
         // 检查是否还有未打出的情报
         const currentIntels = this.getCurrentTopicIntels();
         const unplayed = currentIntels.filter(i => !this.processedIntels.has(i.id));
@@ -673,6 +777,8 @@ class Game {
         }
 
         if (this.currentTopic >= GAME_CONFIG.TOPIC_COUNT) {
+            // 先结算剩余的Fever分数
+            this.exitFever();
             // 进入结算阶段
             this.gamePhase = GAME_PHASE.RESULT;
             this.calculateResult();
@@ -729,6 +835,7 @@ class Game {
             baseScore,
             tier1,
             tier2,
+            totalScore: this.totalScore,
             rating: baseScore >= tier2 ? 'perfect' : (baseScore >= tier1 ? 'success' : 'fail')
         };
 
@@ -750,6 +857,9 @@ class Game {
         this.feverActive = false;
         this.feverStreak = 0;
         this.feverScores = [];
+        this.pendingShares.clear();
+        this.selectedNPCsForEvent.clear();
+        this.selectedGoodIntelId = null;
         this.totalScore = 0;
         this.phaseResults = [];
         // 重置卡牌游戏状态
@@ -832,8 +942,20 @@ class Game {
 
     // 渲染状态栏
     renderStatus() {
-        document.getElementById('score-display').textContent = `得分: ${this.totalScore}`;
-        document.getElementById('action-points').textContent = `行动点: ${this.actionPoints}`;
+        const scoreInfo = this.getDisplayScore();
+        const scoreText = scoreInfo.feverBase > 0
+            ? `${scoreInfo.settled} + ${scoreInfo.feverBase}×${scoreInfo.feverMultiplier.toFixed(1)} = ${scoreInfo.display}`
+            : `${scoreInfo.display}`;
+        document.getElementById('score-display').textContent = `得分: ${scoreText}`;
+
+        // EVENT阶段隐藏行动点
+        const actionPointsEl = document.getElementById('action-points');
+        if (this.gamePhase === GAME_PHASE.EVENT) {
+            actionPointsEl.style.display = 'none';
+        } else {
+            actionPointsEl.style.display = '';
+            actionPointsEl.textContent = `行动点: ${this.actionPoints}`;
+        }
 
         let phaseText = '-';
         if (this.gamePhase === GAME_PHASE.COLLECT) phaseText = '情报收集';
@@ -858,6 +980,22 @@ class Game {
         const npcList = document.getElementById('npc-list');
         npcList.innerHTML = '';
 
+        // 获取当前EVENT阶段显示的情报（如有）
+        let currentIntel = null;
+        if (this.gamePhase === GAME_PHASE.EVENT) {
+            // 有利情报选择阶段：只有选中情报后才显示NPC勾选
+            if (this.eventPhase === 'good') {
+                if (this.selectedGoodIntelId) {
+                    currentIntel = this.allIntels.find(i => i.id === this.selectedGoodIntelId);
+                }
+                // 如果没有选中情报，currentIntel保持null，不显示勾选
+            } else {
+                // 不利情报阶段：始终显示当前情报
+                const currentCard = this.getCurrentEventIntel();
+                currentIntel = currentCard.intel;
+            }
+        }
+
         this.npcs.forEach(npc => {
             const card = document.createElement('div');
             card.className = 'npc-card';
@@ -865,12 +1003,70 @@ class Game {
             const rateDisplay = npc.intelRate !== npc.baseIntelRate ?
                 `初始: ${npc.baseIntelRate}% | 收集: ${npc.intelRate}%` :
                 `好感度: ${npc.baseIntelRate}%`;
+
+            // EVENT阶段显示NPC勾选
+            let checkboxHtml = '';
+            if (currentIntel && this.gamePhase === GAME_PHASE.EVENT) {
+                let canUse = true;
+                let statusText = '';
+                let statusStyle = '';
+                let isAutoChecked = false;
+
+                // 检查NPC数字是否与情报数字匹配
+                const numberMatches = npc.number !== null && currentIntel.numbers.includes(npc.number);
+
+                if (npc.number === null) {
+                    canUse = false;
+                    statusText = '无骰子';
+                    statusStyle = 'color: #666;';
+                } else if (npc.knowsIntel(currentIntel)) {
+                    // 对于有利情报：知晓则100%成功
+                    if (currentIntel.isGood) {
+                        statusText = '知情人';
+                        statusStyle = 'color: #4ecca3;';
+                    } else {
+                        // 对于不利情报：知晓则不能使用
+                        canUse = false;
+                        statusText = '知情人';
+                        statusStyle = 'color: #ff6b6b;';
+                    }
+                } else {
+                    // 不知晓：按成功率判定
+                    const successRate = npc.baseIntelRate / 100;
+                    const roll = Math.random();
+                    if (roll < successRate) {
+                        statusText = '对齐成功';
+                        statusStyle = 'color: #4ecca3;';
+                        // 数字匹配则自动勾选
+                        if (numberMatches) {
+                            isAutoChecked = true;
+                        }
+                    } else {
+                        canUse = false;
+                        statusText = '对齐失败';
+                        statusStyle = 'color: #ff6b6b;';
+                    }
+                }
+
+                const disabled = !canUse ? 'disabled style="opacity: 0.5;"' : '';
+                const isChecked = (isAutoChecked || this.selectedNPCsForEvent.has(npc.name)) ? 'checked' : '';
+                checkboxHtml = `
+                    <div style="margin-top: 5px;">
+                        <label style="display: flex; align-items: center; gap: 4px; cursor: ${canUse ? 'pointer' : 'not-allowed'};">
+                            <input type="checkbox" name="event-npc-select" value="${npc.name}" ${disabled} ${isChecked} ${!canUse ? '' : `onchange="game.handleEventNPCSelectionChange('${npc.name}', this.checked)"`}>
+                            <span style="${statusStyle}">${statusText}</span>
+                        </label>
+                    </div>
+                `;
+            }
+
             card.innerHTML = `
                 <div class="name">${npc.name} ${numberDisplay}</div>
                 <div class="info">
                     <div class="friendliness">${rateDisplay}</div>
                     <div>${npc.role}</div>
                 </div>
+                ${checkboxHtml}
             `;
             npcList.appendChild(card);
         });
@@ -892,9 +1088,6 @@ class Game {
 
     // 渲染情报收集阶段
     renderCollect(container) {
-        const collectedCount = this.collectedIntels.size;
-        const totalCount = this.allIntels.length;
-
         // 按话题分组已收集的情报
         const collectedIntels = Array.from(this.collectedIntels).map(id =>
             this.allIntels.find(i => i.id === id)
@@ -927,23 +1120,9 @@ class Game {
             `;
         };
 
-        // 计算收集比例描述
-        const actualPercent = (collectedCount / totalCount) * 100;
-        let percentDesc;
-        if (collectedCount >= totalCount) {
-            percentDesc = '全部收集完成';
-        } else if (actualPercent < 40) {
-            percentDesc = '小部分';
-        } else if (actualPercent <= 60) {
-            percentDesc = '一半';
-        } else {
-            percentDesc = '大部份';
-        }
-
         container.innerHTML = `
             <div class="phase-panel">
                 <h2>情报收集</h2>
-                <p style="margin-bottom: 20px;">已收集情报: ${percentDesc}</p>
 
                 <div class="player-actions">
                     <h4>与 NPC 交流</h4>
@@ -992,18 +1171,6 @@ class Game {
             const isProcessed = this.processedIntelsInProcessStage.has(intel.id);
             const numbersHtml = this.renderDiceNumbers(intel.numbers, 48);
 
-            // 生成 NPC 复选框用于告知情报
-            const npcCheckboxes = this.npcs.map(npc => {
-                const isKnower = intel.knowers.includes(npc.name);
-                const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
-                return `
-                    <label style="display: inline-flex; align-items: center; margin: 3px 8px; padding: 3px 8px; background: #0f3460; border-radius: 4px; cursor: pointer;">
-                        <input type="checkbox" name="share-${intel.id}" value="${npc.name}" ${isKnower ? 'disabled style="opacity: 0.5;"' : ''}>
-                        <span style="margin-left: 4px; ${isKnower ? 'color: #4ecca3;' : ''}">${npc.name}${numberDisplay}${isKnower ? '✓' : ''}</span>
-                    </label>
-                `;
-            }).join('');
-
             return `
                 <div class="intel-card ${intel.isGood ? '' : 'bad'}" style="${isProcessed ? 'opacity: 0.6;' : ''}">
                     <div class="intel-header">
@@ -1016,15 +1183,22 @@ class Game {
                     </div>
                     <div style="margin-top: 10px;">
                         <button class="action-btn" onclick="game.processIntel('${intel.id}')" ${isProcessed ? 'disabled' : ''}>
-                            投骰子处理（消耗1行动点）
+                            尝试处理
                         </button>
                     </div>
                     <div style="margin-top: 8px; font-size: 12px; color: #888;">
-                        <div style="margin-bottom: 5px;">告知NPC（每人消耗1行动点）：</div>
-                        ${npcCheckboxes}
-                        <button class="action-btn cancel-btn" onclick="game.shareIntelToNPC('${intel.id}')" style="margin-left: 10px;">
-                            告知
-                        </button>
+                        ${this.npcs.map(npc => {
+                            const isKnower = intel.knowers.includes(npc.name);
+                            const pendingNpcs = this.pendingShares.get(intel.id) || [];
+                            const isPending = pendingNpcs.includes(npc.name);
+                            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
+                            return `
+                                <label style="display: inline-flex; align-items: center; margin: 3px 8px; padding: 3px 8px; background: #0f3460; border-radius: 4px; cursor: pointer;">
+                                    <input type="checkbox" name="share-${intel.id}" value="${npc.name}" ${isKnower ? 'disabled style="opacity: 0.5;"' : ''} ${isPending ? 'checked' : ''} ${isKnower ? '' : `onchange="game.handleShareCheckboxChange('${intel.id}', '${npc.name}', this.checked)"`}>
+                                    <span style="margin-left: 4px; ${isKnower ? 'color: #4ecca3;' : ''}">${npc.name}${numberDisplay}${isKnower ? '✓' : ''}</span>
+                                </label>
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
@@ -1032,20 +1206,13 @@ class Game {
 
         container.innerHTML = `
             <div class="phase-panel">
-                <h2>情报处理</h2>
-                <p style="margin-bottom: 20px;">行动点: ${this.actionPoints}</p>
-
                 <div class="player-actions">
                     <h4>情报列表</h4>
-                    <p style="font-size: 12px; color: #888; margin-bottom: 10px;">
-                        点击"投骰子处理"按钮进行骰子判定，成功则增加骰子<br>
-                        选择NPC并点击"告知"可将该情报告知NPC（消耗1行动点）
-                    </p>
                 </div>
 
                 ${Object.entries(topicGroups).map(([topic, intels]) => `
                     <div class="phase-header">
-                        <div class="phase-title">话题 ${topic}（${intels.length}个）</div>
+                        <div class="phase-title">话题 ${topic}</div>
                     </div>
                     ${intels.map(intel => renderIntelCardInProcess(intel)).join('')}
                 `).join('')}
@@ -1063,34 +1230,15 @@ class Game {
         const unprocessed = currentIntels.filter(i => !this.processedIntels.has(i.id));
         const badIntels = unprocessed.filter(i => !i.isGood);
         const goodIntels = unprocessed.filter(i => i.isGood);
-        const completed = currentIntels.filter(i => this.processedIntels.has(i.id));
 
         const currentCard = this.getCurrentEventIntel();
 
         let content = `
             <div class="phase-panel">
-                <h2>第 ${this.currentTopic} 话题 - 交涉进行</h2>
-                <p style="margin-bottom: 20px; color: #888;">
-                    剩余: 不利情报 ${this.originalBadIntelCount - this.eventBadIntelIndex} |
-                    有利情报 ${this.originalGoodIntelCount - this.eventGoodIntelIndex} |
-                    已完成: ${completed.length}
-                </p>
         `;
 
-        // 进度指示器
-        const isBonusMode = this.bonusIntelId !== null;
-        if (badIntels.length > 0 || goodIntels.length > 0) {
-            content += `<div style="margin-bottom: 20px;">`;
-            if (badIntels.length > 0) {
-                content += `<span style="color: #ff6b6b;">不利情报: ${Math.min(this.eventBadIntelIndex + 1, this.originalBadIntelCount)}/${this.originalBadIntelCount}</span>`;
-            }
-            if (goodIntels.length > 0) {
-                content += ` &nbsp; <span style="color: #4ecca3;">有利情报: ${this.eventPhase === 'bad' ? '等待不利情报结束' : Math.min(this.eventGoodIntelIndex + 1, this.originalGoodIntelCount) + '/' + this.originalGoodIntelCount}</span>`;
-            }
-            content += `</div>`;
-        }
-
         // 渲染当前卡牌（不利情报阶段）
+        const isBonusMode = this.bonusIntelId !== null;
         if (currentCard.intel && currentCard.phase === 'bad' && !isBonusMode) {
             content += this.renderCurrentEventCard(currentCard, badIntels.length, goodIntels.length);
         } else if (isBonusMode && this.bonusIntelId !== null) {
@@ -1106,42 +1254,61 @@ class Game {
                 }, badIntels.length, goodIntels.length);
             }
         } else if (this.eventPhase === 'good' && goodIntels.length > 0) {
-            // 有利情报阶段 - 自主选择要打出的情报
-            content += `
-                <div style="margin-bottom: 20px;">
-                    <h3 style="color: #4ecca3; margin-bottom: 15px;">选择有利情报打出</h3>
-                    <p style="font-size: 13px; color: #888; margin-bottom: 15px;">
-                        点击情报卡片选择要打出的情报
-                    </p>
-                </div>
-                <div style="display: flex; flex-wrap: wrap; gap: 15px; justify-content: center;">
-                    ${goodIntels.map(intel => {
-                        const numbersHtml = this.renderDiceNumbers(intel.numbers, 48);
-                        return `
-                            <div class="intel-card" style="cursor: pointer; transition: transform 0.2s; max-width: 280px;"
-                                onclick="game.selectGoodIntel('${intel.id}')"
-                                onmouseover="this.style.transform='scale(1.02)'"
-                                onmouseout="this.style.transform='scale(1)'">
-                                <div class="intel-header">
-                                    <span class="intel-name">${intel.name}</span>
-                                    <span class="intel-score">${intel.score}分</span>
-                                </div>
-                                <div class="intel-numbers">
-                                    ${numbersHtml}
-                                </div>
-                                <div style="margin-top: 10px; font-size: 12px; color: #aaa;">
-                                    点击选择此情报
+            // 有利情报阶段 - 如果已选择情报，显示选中的卡片
+            if (this.selectedGoodIntelId) {
+                const selectedIntel = this.allIntels.find(i => i.id === this.selectedGoodIntelId);
+                if (selectedIntel) {
+                    const numbersHtml = this.renderDiceNumbers(selectedIntel.numbers, 56);
+                    content += `
+                        <div class="intel-card" style="max-width: 600px; margin: 0 auto;">
+                            <div class="intel-header">
+                                <span class="intel-name">${selectedIntel.name}</span>
+                                <span class="intel-score">${selectedIntel.score}分</span>
+                            </div>
+                            <div class="intel-numbers">
+                                ${numbersHtml}
+                            </div>
+                            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #0a1628;">
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                    <button class="action-btn" onclick="game.handleSelectedGoodIntel('${selectedIntel.id}')" style="flex: 1; min-width: 120px;">
+                                        投骰子
+                                    </button>
                                 </div>
                             </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
+                        </div>
+                    `;
+                }
+            } else {
+                // 显示有利情报列表
+                content += `
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="color: #4ecca3; margin-bottom: 15px;">选择有利情报打出</h3>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 15px; justify-content: center;">
+                        ${goodIntels.map(intel => {
+                            const numbersHtml = this.renderDiceNumbers(intel.numbers, 48);
+                            return `
+                                <div class="intel-card" style="cursor: pointer; transition: transform 0.2s; max-width: 280px;"
+                                    onclick="game.selectGoodIntel('${intel.id}')"
+                                    onmouseover="this.style.transform='scale(1.02)'"
+                                    onmouseout="this.style.transform='scale(1)'">
+                                    <div class="intel-header">
+                                        <span class="intel-name">${intel.name}</span>
+                                        <span class="intel-score">${intel.score}分</span>
+                                    </div>
+                                    <div class="intel-numbers">
+                                        ${numbersHtml}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
         } else if (currentCard.phase === 'complete') {
             content += `
                 <div style="text-align: center; padding: 40px 20px; background: #0f3460; border-radius: 8px;">
                     <h3 style="color: #4ecca3; margin-bottom: 20px;">本话题所有情报已处理完毕</h3>
-                    <p style="margin-bottom: 20px;">已处理: ${completed.length} 个情报</p>
                     <button class="action-btn" onclick="game.nextTopic()">
                         ${this.currentTopic >= GAME_CONFIG.TOPIC_COUNT ? '进入结算' : '下一话题'}
                     </button>
@@ -1157,95 +1324,28 @@ class Game {
         const intel = this.allIntels.find(i => i.id === IntelId);
         if (!intel) return;
 
-        // 显示选中的情报卡片（复用渲染方法，传入一个数组）
-        const container = document.getElementById('game-main');
-        const numbersHtml = this.renderDiceNumbers(intel.numbers, 56);
+        // 记录当前选中的有利情报，显示NPC勾选
+        this.selectedGoodIntelId = IntelId;
 
-        // 生成 NPC 复选框
-        const npcCheckboxes = this.npcs.map(npc => {
-            let canUse = true;
-            let statusText = '';
-            let statusStyle = '';
-
-            if (npc.number === null) {
-                canUse = false;
-                statusText = '无骰子';
-                statusStyle = 'color: #666;';
-            } else if (npc.knowsIntel(intel)) {
-                statusText = '知情人';
-                statusStyle = 'color: #4ecca3;';
-            } else {
-                const successRate = npc.baseIntelRate / 100;
-                const roll = Math.random();
-                if (roll < successRate) {
-                    statusText = '对齐成功';
-                    statusStyle = 'color: #4ecca3;';
-                } else {
-                    canUse = false;
-                    statusText = '对齐失败';
-                    statusStyle = 'color: #ff6b6b;';
-                }
-            }
-
-            const disabled = !canUse ? 'disabled style="opacity: 0.5;"' : '';
-            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
-            return `
-                <label style="display: inline-flex; align-items: center; margin: 5px 10px; padding: 5px 10px; background: #0f3460; border-radius: 4px; cursor: ${canUse ? 'pointer' : 'not-allowed'}; vertical-align: middle;">
-                    <input type="checkbox" name="event-npc-select" value="${npc.name}" ${disabled}>
-                    <span style="margin-left: 5px; ${statusStyle}">${npc.name}${numberDisplay} ${statusText}</span>
-                </label>
-            `;
-        }).join('');
-
-        container.innerHTML = `
-            <div class="phase-panel">
-                <h2>第 ${this.currentTopic} 话题 - 打出有利情报</h2>
-                <p style="margin-bottom: 20px; color: #888;">
-                    剩余有利情报: ${this.originalGoodIntelCount - this.eventGoodIntelIndex}/${this.originalGoodIntelCount}
-                </p>
-
-                <div class="intel-card" style="max-width: 600px; margin: 0 auto;">
-                    <div class="intel-header">
-                        <span class="intel-name">${intel.name}</span>
-                        <span class="intel-score">${intel.score}分</span>
-                    </div>
-                    <div style="font-size: 12px; color: #4ecca3; margin-bottom: 10px;">
-                        第 ${this.eventGoodIntelIndex + 1}/${this.originalGoodIntelCount} 张 - 有利情报
-                    </div>
-                    <div class="intel-numbers">
-                        ${numbersHtml}
-                    </div>
-
-                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #0a1628;">
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; color: #aaa; font-size: 13px;">
-                                选择多个 NPC 骰子与玩家骰子一起匹配，匹配越多加成越高
-                            </label>
-                            <div id="npc-selection-area">
-                                ${npcCheckboxes}
-                            </div>
-                        </div>
-
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button class="action-btn" onclick="game.handleSelectedGoodIntel('${intel.id}')" style="flex: 1; min-width: 120px;">
-                                投骰子加成
-                            </button>
-                        </div>
-                        <p style="font-size: 11px; color: #888; margin-top: 10px;">
-                            选择多个 NPC 骰子与玩家骰子一起匹配，匹配越多加成越高
-                        </p>
-                    </div>
-                </div>
-            </div>
-        `;
+        // 重新渲染以显示NPC勾选
+        this.render();
     }
 
     // 处理选中的有利情报
     handleSelectedGoodIntel(IntelId) {
-        const checkboxes = document.querySelectorAll('input[name="event-npc-select"]:checked');
-        const selectedNpcs = Array.from(checkboxes).map(cb => cb.value);
+        const intel = this.allIntels.find(i => i.id === IntelId);
+        const manuallySelected = Array.from(this.selectedNPCsForEvent);
+        // 添加数字匹配的NPC
+        const autoMatched = intel ? this.npcs
+            .filter(npc => npc.number !== null && intel.numbers.includes(npc.number))
+            .map(npc => npc.name) : [];
+        // 合并并去重
+        const selectedNpcs = [...new Set([...manuallySelected, ...autoMatched])];
 
         const result = this.playGoodIntel(IntelId, selectedNpcs);
+
+        // 清理选中的有利情报，隐藏NPC勾选
+        this.selectedGoodIntelId = null;
 
         if (result.success !== undefined) {
             // 打出成功或失败，都进入下一张
@@ -1259,6 +1359,9 @@ class Game {
 
             this.render();
         }
+
+        // 清理 NPC 勾选状态
+        this.selectedNPCsForEvent.clear();
     }
 
     // 跳过剩余有利情报，结束本话题
@@ -1284,74 +1387,22 @@ class Game {
         const intel = currentCard.intel;
         const numbersHtml = this.renderDiceNumbers(intel.numbers, 56);
 
-        let phaseTitle, phaseColor, actionText, helpText;
+        let phaseTitle, phaseColor, actionText;
         const isBonusMode = this.bonusIntelId !== null;
 
         if (isBonusMode) {
             phaseTitle = '加成判定';
             phaseColor = '#f9ed69';
             actionText = '加成';
-            helpText = '选择 NPC 骰子与玩家骰子一起匹配，匹配越多加成越高';
         } else if (currentCard.phase === 'bad') {
             phaseTitle = '不利情报';
             phaseColor = '#ff6b6b';
             actionText = '解决';
-            helpText = '点数与情报骰子一致则解决成功，否则扣除分数';
         } else {
             phaseTitle = '有利情报';
             phaseColor = '#4ecca3';
             actionText = '加成';
-            helpText = '选择多个 NPC 骰子与玩家骰子一起匹配，匹配越多加成越高';
         }
-
-        // 生成 NPC 复选框 - 预先进行成功率判定（不自动勾选，只显示状态）
-        const npcCheckboxes = this.npcs.map(npc => {
-            let canUse = true;
-            let statusText = '';
-            let statusStyle = '';
-
-            if (npc.number === null) {
-                canUse = false;
-                statusText = '无骰子';
-                statusStyle = 'color: #666;';
-            } else if (npc.knowsIntel(intel)) {
-                // 对于有利情报：知晓则100%成功
-                if (intel.isGood) {
-                    // 不自动勾选，只显示状态
-                    statusText = '知情人';
-                    statusStyle = 'color: #4ecca3;';
-                } else {
-                    // 对于不利情报：知晓则不能使用
-                    canUse = false;
-                    statusText = '知情人';
-                    statusStyle = 'color: #ff6b6b;';
-                }
-            } else {
-                // 不知晓：按成功率判定
-                const successRate = npc.baseIntelRate / 100;
-                const roll = Math.random();
-                if (roll < successRate) {
-                    // 成功：可以使用
-                    statusText = '对齐成功';
-                    statusStyle = 'color: #4ecca3;';
-                } else {
-                    // 失败：不可使用
-                    canUse = false;
-                    statusText = '对齐失败';
-                    statusStyle = 'color: #ff6b6b;';
-                }
-            }
-
-            const disabled = !canUse ? 'disabled style="opacity: 0.5;"' : '';
-
-            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
-            return `
-                <label style="display: inline-flex; align-items: center; margin: 5px 10px; padding: 5px 10px; background: #0f3460; border-radius: 4px; cursor: ${canUse ? 'pointer' : 'not-allowed'}; vertical-align: middle;">
-                    <input type="checkbox" name="event-npc-select" value="${npc.name}" ${disabled}>
-                    <span style="margin-left: 5px; ${statusStyle}">${npc.name}${numberDisplay} ${statusText}</span>
-                </label>
-            `;
-        }).join('');
 
         // 按钮 onclick 根据是否是加成模式
         const buttonAction = isBonusMode ? 'game.applyBonusToCurrent()' : 'game.handleCurrentCard()';
@@ -1370,15 +1421,6 @@ class Game {
                 </div>
 
                 <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #0a1628;">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; color: #aaa; font-size: 13px;">
-                            ${helpText}
-                        </label>
-                        <div id="npc-selection-area">
-                            ${npcCheckboxes}
-                        </div>
-                    </div>
-
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                         <button class="action-btn" onclick="${buttonAction}" style="flex: 1; min-width: 120px;">
                             投骰子${actionText}
@@ -1389,9 +1431,6 @@ class Game {
                             </button>
                         ` : ''}
                     </div>
-                    <p style="font-size: 11px; color: #888; margin-top: 10px;">
-                        ${helpText}
-                    </p>
                 </div>
             </div>
         `;
@@ -1416,15 +1455,23 @@ class Game {
         const currentCard = this.getCurrentEventIntel();
         if (!currentCard.intel) return;
 
-        // 获取选中的 NPC（从复选框）
-        const checkboxes = document.querySelectorAll('input[name="event-npc-select"]:checked');
-        const selectedNpcs = Array.from(checkboxes).map(cb => cb.value);
+        // 获取选中的 NPC（包括手动选择和自动匹配的）
+        const manuallySelected = Array.from(this.selectedNPCsForEvent);
+        // 添加数字匹配的NPC
+        const autoMatched = this.npcs
+            .filter(npc => npc.number !== null && currentCard.intel.numbers.includes(npc.number))
+            .map(npc => npc.name);
+        // 合并并去重
+        const selectedNpcs = [...new Set([...manuallySelected, ...autoMatched])];
 
         if (currentCard.phase === 'bad') {
             this.resolveCurrentBadIntel(selectedNpcs);
         } else {
             this.playCurrentGoodIntel(selectedNpcs);
         }
+
+        // 清理 NPC 勾选状态
+        this.selectedNPCsForEvent.clear();
     }
 
     // 解决当前不利情报
@@ -1458,8 +1505,14 @@ class Game {
     applyBonusToCurrent() {
         if (!this.bonusIntelId) return;
 
-        const checkboxes = document.querySelectorAll('input[name="event-npc-select"]:checked');
-        const selectedNpcs = Array.from(checkboxes).map(cb => cb.value);
+        const intel = this.allIntels.find(i => i.id === this.bonusIntelId);
+        const manuallySelected = Array.from(this.selectedNPCsForEvent);
+        // 添加数字匹配的NPC
+        const autoMatched = intel ? this.npcs
+            .filter(npc => npc.number !== null && intel.numbers.includes(npc.number))
+            .map(npc => npc.name) : [];
+        // 合并并去重
+        const selectedNpcs = [...new Set([...manuallySelected, ...autoMatched])];
 
         const result = this.applyBonus(this.bonusIntelId, selectedNpcs);
 
@@ -1478,6 +1531,9 @@ class Game {
 
             this.render();
         }
+
+        // 清理 NPC 勾选状态
+        this.selectedNPCsForEvent.clear();
     }
 
     // 跳过当前不利情报
@@ -1549,6 +1605,9 @@ class Game {
         } else {
             this.skipCurrentGoodIntel();
         }
+
+        // 清理 NPC 勾选状态
+        this.selectedNPCsForEvent.clear();
     }
 
     // 渲染情报卡片
@@ -1565,7 +1624,7 @@ class Game {
                 actionsHtml = `
                     <div style="margin-top: 10px;">
                         <button class="action-btn" onclick="game.resolveBadIntel('${intel.id}')">
-                            投骰子解决
+                            尝试解决
                         </button>
                     </div>
                 `;
@@ -1573,7 +1632,7 @@ class Game {
                 actionsHtml = `
                     <div style="margin-top: 10px;">
                         <button class="action-btn" onclick="game.playGoodIntel('${intel.id}')">
-                            投骰子加成
+                            投骰子
                         </button>
                         <button class="action-btn cancel-btn" onclick="game.skipGoodIntel('${intel.id}')">
                             跳过
@@ -1618,11 +1677,8 @@ class Game {
             <div class="result-panel ${resultClass}">
                 <h2>${resultText}</h2>
                 <div class="score-display">
-                    <div class="base">基础分: ${result.baseScore}</div>
-                    <div class="final">${result.tier1.toFixed(0)} - ${result.tier2.toFixed(0)}</div>
+                    <div class="final">${result.totalScore.toFixed(0)}</div>
                 </div>
-                <p>第一档成功: ${result.tier1.toFixed(0)} 分</p>
-                <p>第二档完美: ${result.tier2.toFixed(0)} 分</p>
                 <div style="margin-top: 40px;">
                     <button class="action-btn" onclick="game.restart()">再来一局</button>
                 </div>

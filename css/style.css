@@ -49,6 +49,7 @@ header #game-status {
 
 header #npc-panel {
     flex: 1;
+    overflow-x: auto;
 }
 
 header #npc-panel h3 {
@@ -60,7 +61,8 @@ header #npc-panel h3 {
 header #npc-list {
     display: flex;
     gap: 10px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
 }
 
 header .npc-card {
@@ -69,6 +71,7 @@ header .npc-card {
     margin-bottom: 0;
     border-radius: 4px;
     font-size: 13px;
+    flex-shrink: 0;
 }
 
 header .npc-card .name {
@@ -86,6 +89,7 @@ header .npc-card .info {
     background: #16213e;
     padding: 20px;
     border-radius: 8px;
+    overflow-y: auto;
 }
 
 #game-status {
@@ -425,6 +429,8 @@ button.cancel-btn:hover {
 @media screen and (max-width: 768px) {
     body {
         font-size: 14px;
+        height: 100vh;
+        overflow: hidden;
     }
 
     #game-container {
@@ -432,6 +438,8 @@ button.cancel-btn:hover {
         flex-direction: column;
         padding: 10px;
         gap: 10px;
+        height: 100vh;
+        overflow: hidden;
     }
 
     header {
@@ -479,6 +487,7 @@ button.cancel-btn:hover {
         gap: 8px;
         flex: 1;
         order: 2;
+        min-height: 0;
     }
 
     #game-sidebar {
@@ -486,11 +495,17 @@ button.cancel-btn:hover {
         flex-shrink: 0;
         padding: 8px;
         order: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
     }
 
     #game-log {
-        min-height: 120px;
+        flex: 1;
+        min-height: 0;
         padding: 8px;
+        overflow-y: auto;
     }
 
     #game-sidebar h3 {
@@ -506,6 +521,7 @@ button.cancel-btn:hover {
         flex: 1;
         padding: 10px;
         order: 2;
+        overflow-y: auto;
     }
 
     .welcome-screen {
