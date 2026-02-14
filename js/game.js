@@ -155,6 +155,7 @@ class Game {
             percentDesc = '大部份';
         }
 
+        this.initialIntelPercent = percentDesc;
         this.log(`初始情报: ${initialCount}/${totalIntels} (${percentDesc})`, 'info');
 
         // 检查每个 NPC 是否已经把所有情报都给出了
@@ -836,10 +837,11 @@ class Game {
             tier1,
             tier2,
             totalScore: this.totalScore,
-            rating: baseScore >= tier2 ? 'perfect' : (baseScore >= tier1 ? 'success' : 'fail')
+            rating: this.totalScore >= tier2 ? 'perfect' : (this.totalScore >= tier1 ? 'success' : 'fail')
         };
 
         this.log(`结算: 基础分 ${baseScore}`, 'info');
+        this.log(`结算: 总分 ${this.totalScore}`, 'info');
         this.log(`第一档: ${tier1.toFixed(0)}, 第二档: ${tier2.toFixed(0)}`, 'info');
     }
 
@@ -998,7 +1000,24 @@ class Game {
 
         this.npcs.forEach(npc => {
             const card = document.createElement('div');
-            card.className = 'npc-card';
+
+            // COLLECT 阶段：NPC 卡片可点击获取情报
+            let cardStyle = '';
+            if (this.gamePhase === GAME_PHASE.COLLECT) {
+                if (!this.interactedNPCs.has(npc.name)) {
+                    card.onclick = () => this.collectFromNPC(npc.name);
+                    cardStyle = 'cursor: pointer;';
+                } else {
+                    // 已交互：改变颜色
+                    card.className = 'npc-card completed';
+                }
+            }
+
+            card.className = card.className || 'npc-card';
+            if (cardStyle) {
+                card.style.cssText += cardStyle;
+            }
+
             const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
             const rateDisplay = npc.intelRate !== npc.baseIntelRate ?
                 `初始: ${npc.baseIntelRate}% | 收集: ${npc.intelRate}%` :
@@ -1120,21 +1139,18 @@ class Game {
             `;
         };
 
+        // 显示初始情报比例
+        let initialIntelHtml = '';
+        if (this.initialIntelPercent) {
+            initialIntelHtml = `<div style="margin-bottom: 15px; padding: 10px; background: #0f3460; border-radius: 6px; color: #4ecca3;">
+                初始情报: ${this.initialIntelPercent}
+            </div>`;
+        }
+
         container.innerHTML = `
             <div class="phase-panel">
                 <h2>情报收集</h2>
-
-                <div class="player-actions">
-                    <h4>与 NPC 交流</h4>
-                    <div class="action-buttons">
-                        ${this.npcs.map(npc => `
-                            ${this.interactedNPCs.has(npc.name) ?
-                                `<button class="action-btn" disabled style="opacity: 0.5;">${npc.name} (已交互)</button>` :
-                                `<button class="action-btn" onclick="game.collectFromNPC('${npc.name}')">${npc.name} (${npc.intelRate}%)</button>`
-                            }
-                        `).join('')}
-                    </div>
-                </div>
+                ${initialIntelHtml}
 
                 ${Object.entries(topicGroups).map(([topic, intels]) => `
                     <div class="phase-header">

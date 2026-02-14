@@ -28,9 +28,8 @@ header {
     padding: 20px;
     border-radius: 8px;
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 30px;
+    flex-direction: column;
+    gap: 15px;
 }
 
 /* PC端游戏主体左右布局 */
@@ -81,6 +80,11 @@ header .npc-card .name {
 
 header .npc-card .info {
     font-size: 11px;
+}
+
+header .npc-card.completed {
+    opacity: 0.6;
+    background: #1a4a3a;
 }
 
 #game-main {
