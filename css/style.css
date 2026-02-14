@@ -87,6 +87,10 @@ header .npc-card.completed {
     background: #1a4a3a;
 }
 
+header .npc-card.selected {
+    border: 2px solid #4ecca3;
+}
+
 #game-main {
     grid-column: 1;
     grid-row: 2;

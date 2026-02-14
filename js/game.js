@@ -51,6 +51,7 @@ class Game {
         this.pendingShares = new Map(); // 等待确认的告知列表: intelId -> [npcNames]
         this.selectedNPCsForEvent = new Set(); // EVENT阶段选中的NPC
         this.selectedGoodIntelId = null; // 有利情报阶段当前选中的情报ID
+        this.npcPreCheckCache = new Map(); // NPC预判定结果缓存
 
         this.intelGenerator = new IntelGenerator();
 
@@ -376,6 +377,9 @@ class Game {
         // 清空 pendingShares
         this.pendingShares.clear();
 
+        // 清除NPC预判定缓存
+        this.npcPreCheckCache.clear();
+
         this.gamePhase = GAME_PHASE.EVENT;
 
         // 初始化卡牌游戏状态
@@ -520,6 +524,9 @@ class Game {
     resolveBadIntel(IntelId, selectedNpcs = []) {
         const intel = this.allIntels.find(i => i.id === IntelId);
         if (!intel) return { success: false };
+
+        // 清除NPC预判定缓存，重新判定
+        this.npcPreCheckCache.clear();
 
         // 投骰子
         const playerDice = this.rollDice();
@@ -1018,12 +1025,12 @@ class Game {
                 card.style.cssText += cardStyle;
             }
 
-            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
+            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '';
             const rateDisplay = npc.intelRate !== npc.baseIntelRate ?
                 `初始: ${npc.baseIntelRate}% | 收集: ${npc.intelRate}%` :
                 `好感度: ${npc.baseIntelRate}%`;
 
-            // EVENT阶段显示NPC勾选
+            // EVENT阶段显示NPC状态（点击切换选择）
             let checkboxHtml = '';
             if (currentIntel && this.gamePhase === GAME_PHASE.EVENT) {
                 let canUse = true;
@@ -1034,48 +1041,83 @@ class Game {
                 // 检查NPC数字是否与情报数字匹配
                 const numberMatches = npc.number !== null && currentIntel.numbers.includes(npc.number);
 
-                if (npc.number === null) {
-                    canUse = false;
-                    statusText = '无骰子';
-                    statusStyle = 'color: #666;';
-                } else if (npc.knowsIntel(currentIntel)) {
-                    // 对于有利情报：知晓则100%成功
-                    if (currentIntel.isGood) {
-                        statusText = '知情人';
-                        statusStyle = 'color: #4ecca3;';
-                    } else {
-                        // 对于不利情报：知晓则不能使用
-                        canUse = false;
-                        statusText = '知情人';
-                        statusStyle = 'color: #ff6b6b;';
-                    }
+                // 检查缓存
+                const cacheKey = `${currentIntel.id}-${npc.name}`;
+                const cached = this.npcPreCheckCache.get(cacheKey);
+
+                if (cached) {
+                    canUse = cached.canUse;
+                    statusText = cached.statusText;
+                    statusStyle = cached.statusStyle;
+                    isAutoChecked = cached.isAutoChecked;
                 } else {
-                    // 不知晓：按成功率判定
-                    const successRate = npc.baseIntelRate / 100;
-                    const roll = Math.random();
-                    if (roll < successRate) {
-                        statusText = '对齐成功';
-                        statusStyle = 'color: #4ecca3;';
-                        // 数字匹配则自动勾选
-                        if (numberMatches) {
-                            isAutoChecked = true;
+                    if (npc.number === null) {
+                        canUse = false;
+                        statusText = '无骰子';
+                        statusStyle = 'color: #666;';
+                    } else if (npc.knowsIntel(currentIntel)) {
+                        // 对于有利情报：知晓则100%成功
+                        if (currentIntel.isGood) {
+                            statusText = '知情人';
+                            statusStyle = 'color: #4ecca3;';
+                            // 数字匹配则自动勾选
+                            if (numberMatches) {
+                                isAutoChecked = true;
+                            }
+                        } else {
+                            // 对于不利情报：知晓则不能使用
+                            canUse = false;
+                            statusText = '知情人';
+                            statusStyle = 'color: #ff6b6b;';
                         }
                     } else {
-                        canUse = false;
-                        statusText = '对齐失败';
-                        statusStyle = 'color: #ff6b6b;';
+                        // 不知晓：按成功率判定
+                        const successRate = npc.baseIntelRate / 100;
+                        const roll = Math.random();
+                        if (roll < successRate) {
+                            statusText = '对齐成功';
+                            statusStyle = 'color: #4ecca3;';
+                            // 数字匹配则自动勾选
+                            if (numberMatches) {
+                                isAutoChecked = true;
+                            }
+                        } else {
+                            canUse = false;
+                            statusText = '对齐失败';
+                            statusStyle = 'color: #ff6b6b;';
+                        }
                     }
+
+                    // 缓存结果
+                    this.npcPreCheckCache.set(cacheKey, {
+                        canUse,
+                        statusText,
+                        statusStyle,
+                        isAutoChecked
+                    });
                 }
 
-                const disabled = !canUse ? 'disabled style="opacity: 0.5;"' : '';
-                const isChecked = (isAutoChecked || this.selectedNPCsForEvent.has(npc.name)) ? 'checked' : '';
+                // 点击卡片切换选择
+                if (canUse) {
+                    card.onclick = () => {
+                        if (this.selectedNPCsForEvent.has(npc.name)) {
+                            this.selectedNPCsForEvent.delete(npc.name);
+                        } else {
+                            this.selectedNPCsForEvent.add(npc.name);
+                        }
+                        this.render();
+                    };
+                    card.style.cursor = 'pointer';
+                }
+
+                // 选中状态样式
+                if (isAutoChecked || this.selectedNPCsForEvent.has(npc.name)) {
+                    card.className = 'npc-card selected';
+                }
+
+                // 只显示状态文字，不显示复选框
                 checkboxHtml = `
-                    <div style="margin-top: 5px;">
-                        <label style="display: flex; align-items: center; gap: 4px; cursor: ${canUse ? 'pointer' : 'not-allowed'};">
-                            <input type="checkbox" name="event-npc-select" value="${npc.name}" ${disabled} ${isChecked} ${!canUse ? '' : `onchange="game.handleEventNPCSelectionChange('${npc.name}', this.checked)"`}>
-                            <span style="${statusStyle}">${statusText}</span>
-                        </label>
-                    </div>
+                    <div style="margin-top: 5px; ${statusStyle}">${statusText}</div>
                 `;
             }
 
@@ -1207,7 +1249,7 @@ class Game {
                             const isKnower = intel.knowers.includes(npc.name);
                             const pendingNpcs = this.pendingShares.get(intel.id) || [];
                             const isPending = pendingNpcs.includes(npc.name);
-                            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '<span style="font-size: 15px; color: #888;">?</span>';
+                            const numberDisplay = npc.number !== null ? this.renderDice(npc.number, 30) : '';
                             return `
                                 <label style="display: inline-flex; align-items: center; margin: 3px 8px; padding: 3px 8px; background: #0f3460; border-radius: 4px; cursor: pointer;">
                                     <input type="checkbox" name="share-${intel.id}" value="${npc.name}" ${isKnower ? 'disabled style="opacity: 0.5;"' : ''} ${isPending ? 'checked' : ''} ${isKnower ? '' : `onchange="game.handleShareCheckboxChange('${intel.id}', '${npc.name}', this.checked)"`}>
@@ -1342,6 +1384,9 @@ class Game {
 
         // 记录当前选中的有利情报，显示NPC勾选
         this.selectedGoodIntelId = IntelId;
+
+        // 清除NPC预判定缓存，重新判定
+        this.npcPreCheckCache.clear();
 
         // 重新渲染以显示NPC勾选
         this.render();
