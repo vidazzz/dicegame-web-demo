@@ -52,6 +52,7 @@ class Game {
         this.selectedNPCsForEvent = new Set(); // EVENT阶段选中的NPC
         this.selectedGoodIntelId = null; // 有利情报阶段当前选中的情报ID
         this.npcPreCheckCache = new Map(); // NPC预判定结果缓存
+        this.deselectedNPCs = new Set(); // 用户手动取消默认选择的NPC
 
         this.intelGenerator = new IntelGenerator();
 
@@ -116,8 +117,8 @@ class Game {
         // 为所有NPC分配情报，确保每个NPC至少有一个情报
         this.intelGenerator.distributeIntelsToNPCs(this.allIntels, this.npcs);
 
-        // 记录 NPC 知道的情报
-        eventNPCs.forEach(npc => {
+        // 记录 NPC 知道的情报 - 遍历所有NPC，不只是eventNPCs
+        this.npcs.forEach(npc => {
             this.allIntels.forEach(intel => {
                 if (intel.knowers.includes(npc.name)) {
                     npc.addIntel(intel);
@@ -379,6 +380,7 @@ class Game {
 
         // 清除NPC预判定缓存
         this.npcPreCheckCache.clear();
+        this.deselectedNPCs.clear();
 
         this.gamePhase = GAME_PHASE.EVENT;
 
@@ -525,8 +527,9 @@ class Game {
         const intel = this.allIntels.find(i => i.id === IntelId);
         if (!intel) return { success: false };
 
-        // 清除NPC预判定缓存，重新判定
-        this.npcPreCheckCache.clear();
+        // 清除选中状态（保留缓存，因为投骰子后才会进入下一张）
+        this.deselectedNPCs.clear();
+        this.selectedNPCsForEvent.clear();
 
         // 投骰子
         const playerDice = this.rollDice();
@@ -589,6 +592,10 @@ class Game {
         const intel = this.allIntels.find(i => i.id === IntelId);
         if (!intel) return { success: false, needBonus: false };
 
+        // 清除选中状态（保留缓存）
+        this.deselectedNPCs.clear();
+        this.selectedNPCsForEvent.clear();
+
         // 投骰子
         const playerDice = this.rollDice();
         const diceResults = [playerDice];
@@ -622,7 +629,9 @@ class Game {
             this.eventBadIntelIndex++;
             this.bonusIntelId = null;
 
-            if (this.eventBadIntelIndex >= this.originalBadIntelCount) {
+            // 检查是否还有未处理的不利情报
+            const currentBadIntels = this.getCurrentTopicIntels().filter(i => !i.isGood && !this.processedIntels.has(i.id));
+            if (currentBadIntels.length === 0) {
                 this.eventPhase = 'good';
             }
 
@@ -654,6 +663,10 @@ class Game {
     playGoodIntel(IntelId, selectedNpcs = []) {
         const intel = this.allIntels.find(i => i.id === IntelId);
         if (!intel) return { success: false };
+
+        // 清除选中状态（保留缓存）
+        this.deselectedNPCs.clear();
+        this.selectedNPCsForEvent.clear();
 
         // 投骰子
         const playerDice = this.rollDice();
@@ -771,6 +784,7 @@ class Game {
 
         // 清理 EVENT 阶段选中的 NPC
         this.selectedNPCsForEvent.clear();
+        this.deselectedNPCs.clear();
 
         // 清理选中的有利情报
         this.selectedGoodIntelId = null;
@@ -869,6 +883,8 @@ class Game {
         this.pendingShares.clear();
         this.selectedNPCsForEvent.clear();
         this.selectedGoodIntelId = null;
+        this.npcPreCheckCache.clear();
+        this.deselectedNPCs.clear();
         this.totalScore = 0;
         this.phaseResults = [];
         // 重置卡牌游戏状态
@@ -1097,13 +1113,24 @@ class Game {
                     });
                 }
 
-                // 点击卡片切换选择
+                // 点击卡片切换选择（考虑自动选中状态）
                 if (canUse) {
+                    // 有效选中状态 = 手动选中 或 (自动选中且未被用户取消)
+                    const isEffectivelySelected = this.selectedNPCsForEvent.has(npc.name) || (isAutoChecked && !this.deselectedNPCs.has(npc.name));
+
                     card.onclick = () => {
-                        if (this.selectedNPCsForEvent.has(npc.name)) {
+                        if (isEffectivelySelected) {
+                            // 取消选择
                             this.selectedNPCsForEvent.delete(npc.name);
+                            // 如果是自动选中的，添加到deselectedNPCs防止再次自动选中
+                            if (isAutoChecked) {
+                                this.deselectedNPCs.add(npc.name);
+                            }
                         } else {
+                            // 添加选择
                             this.selectedNPCsForEvent.add(npc.name);
+                            // 移除deselectedNPCs记录
+                            this.deselectedNPCs.delete(npc.name);
                         }
                         this.render();
                     };
@@ -1111,7 +1138,8 @@ class Game {
                 }
 
                 // 选中状态样式
-                if (isAutoChecked || this.selectedNPCsForEvent.has(npc.name)) {
+                const isSelected = this.selectedNPCsForEvent.has(npc.name) || (isAutoChecked && !this.deselectedNPCs.has(npc.name));
+                if (isSelected) {
                     card.className = 'npc-card selected';
                 }
 
@@ -1387,6 +1415,7 @@ class Game {
 
         // 清除NPC预判定缓存，重新判定
         this.npcPreCheckCache.clear();
+        this.deselectedNPCs.clear();
 
         // 重新渲染以显示NPC勾选
         this.render();
@@ -1396,9 +1425,23 @@ class Game {
     handleSelectedGoodIntel(IntelId) {
         const intel = this.allIntels.find(i => i.id === IntelId);
         const manuallySelected = Array.from(this.selectedNPCsForEvent);
-        // 添加数字匹配的NPC
+        // 添加数字匹配的NPC（排除用户手动取消的，需要预判定成功）
         const autoMatched = intel ? this.npcs
-            .filter(npc => npc.number !== null && intel.numbers.includes(npc.number))
+            .filter(npc => {
+                // 检查数字匹配
+                if (npc.number === null || !intel.numbers.includes(npc.number)) {
+                    return false;
+                }
+                // 检查是否被手动取消
+                if (this.deselectedNPCs.has(npc.name)) {
+                    return false;
+                }
+                // 检查预判定是否成功（需要从缓存中获取）
+                const cacheKey = `${intel.id}-${npc.name}`;
+                const cached = this.npcPreCheckCache.get(cacheKey);
+                // 如果有缓存，检查 canUse；如果没有缓存，默认可以自动匹配
+                return !cached || cached.canUse !== false;
+            })
             .map(npc => npc.name) : [];
         // 合并并去重
         const selectedNpcs = [...new Set([...manuallySelected, ...autoMatched])];
@@ -1423,6 +1466,8 @@ class Game {
 
         // 清理 NPC 勾选状态
         this.selectedNPCsForEvent.clear();
+        this.deselectedNPCs.clear();
+        this.npcPreCheckCache.clear();
     }
 
     // 跳过剩余有利情报，结束本话题
@@ -1518,9 +1563,23 @@ class Game {
 
         // 获取选中的 NPC（包括手动选择和自动匹配的）
         const manuallySelected = Array.from(this.selectedNPCsForEvent);
-        // 添加数字匹配的NPC
+        // 添加数字匹配的NPC（排除用户手动取消的，需要预判定成功）
         const autoMatched = this.npcs
-            .filter(npc => npc.number !== null && currentCard.intel.numbers.includes(npc.number))
+            .filter(npc => {
+                // 检查数字匹配
+                if (npc.number === null || !currentCard.intel.numbers.includes(npc.number)) {
+                    return false;
+                }
+                // 检查是否被手动取消
+                if (this.deselectedNPCs.has(npc.name)) {
+                    return false;
+                }
+                // 检查预判定是否成功（需要从缓存中获取）
+                const cacheKey = `${currentCard.intel.id}-${npc.name}`;
+                const cached = this.npcPreCheckCache.get(cacheKey);
+                // 如果有缓存，检查 canUse；如果没有缓存，默认可以自动匹配
+                return !cached || cached.canUse !== false;
+            })
             .map(npc => npc.name);
         // 合并并去重
         const selectedNpcs = [...new Set([...manuallySelected, ...autoMatched])];
@@ -1533,6 +1592,7 @@ class Game {
 
         // 清理 NPC 勾选状态
         this.selectedNPCsForEvent.clear();
+        this.deselectedNPCs.clear();
     }
 
     // 解决当前不利情报
@@ -1545,6 +1605,10 @@ class Game {
         if (result.success && result.needBonus) {
             // 解决成功，需要进入加成阶段
             this.bonusIntelId = currentCard.intel.id;
+            // 清除预判定缓存，让加成阶段重新计算
+            this.npcPreCheckCache.clear();
+            this.deselectedNPCs.clear();
+            this.selectedNPCsForEvent.clear();
             this.log(`解决成功！现在进行加成判定...`, 'success');
             this.render();
         } else if (result.success === false) {
@@ -1553,8 +1617,9 @@ class Game {
             this.eventBadIntelIndex++;
             this.bonusIntelId = null;
 
-            // 检查是否需要切换到有利情报阶段
-            if (this.eventBadIntelIndex >= this.originalBadIntelCount) {
+            // 检查是否还有未处理的不利情报
+            const currentBadIntels = this.getCurrentTopicIntels().filter(i => !i.isGood && !this.processedIntels.has(i.id));
+            if (currentBadIntels.length === 0) {
                 this.eventPhase = 'good';
             }
 
@@ -1568,9 +1633,23 @@ class Game {
 
         const intel = this.allIntels.find(i => i.id === this.bonusIntelId);
         const manuallySelected = Array.from(this.selectedNPCsForEvent);
-        // 添加数字匹配的NPC
+        // 添加数字匹配的NPC（排除用户手动取消的，需要预判定成功）
         const autoMatched = intel ? this.npcs
-            .filter(npc => npc.number !== null && intel.numbers.includes(npc.number))
+            .filter(npc => {
+                // 检查数字匹配
+                if (npc.number === null || !intel.numbers.includes(npc.number)) {
+                    return false;
+                }
+                // 检查是否被手动取消
+                if (this.deselectedNPCs.has(npc.name)) {
+                    return false;
+                }
+                // 检查预判定是否成功（需要从缓存中获取）
+                const cacheKey = `${intel.id}-${npc.name}`;
+                const cached = this.npcPreCheckCache.get(cacheKey);
+                // 如果有缓存，检查 canUse；如果没有缓存，默认可以自动匹配
+                return !cached || cached.canUse !== false;
+            })
             .map(npc => npc.name) : [];
         // 合并并去重
         const selectedNpcs = [...new Set([...manuallySelected, ...autoMatched])];
@@ -1585,16 +1664,19 @@ class Game {
             this.eventBadIntelIndex++;
             this.bonusIntelId = null;
 
-            // 检查是否需要切换到有利情报阶段
-            if (this.eventBadIntelIndex >= this.originalBadIntelCount) {
+            // 检查是否还有未处理的不利情报
+            const currentBadIntels = this.getCurrentTopicIntels().filter(i => !i.isGood && !this.processedIntels.has(i.id));
+            if (currentBadIntels.length === 0) {
                 this.eventPhase = 'good';
             }
 
+            // 清理 NPC 勾选状态（注意：render 之后不再清除缓存，让缓存保留给下一张情报）
+            this.selectedNPCsForEvent.clear();
+            this.deselectedNPCs.clear();
+
+            // 重新渲染以显示下一张情报
             this.render();
         }
-
-        // 清理 NPC 勾选状态
-        this.selectedNPCsForEvent.clear();
     }
 
     // 跳过当前不利情报
@@ -1609,7 +1691,9 @@ class Game {
         // 进入下一张卡
         this.eventBadIntelIndex++;
 
-        if (this.eventBadIntelIndex >= this.originalBadIntelCount) {
+        // 检查是否还有未处理的不利情报
+        const currentBadIntels = this.getCurrentTopicIntels().filter(i => !i.isGood && !this.processedIntels.has(i.id));
+        if (currentBadIntels.length === 0) {
             this.eventPhase = 'good';
         }
 
@@ -1635,6 +1719,11 @@ class Game {
 
             this.render();
         }
+
+        // 清理 NPC 勾选状态
+        this.selectedNPCsForEvent.clear();
+        this.deselectedNPCs.clear();
+        this.npcPreCheckCache.clear();
     }
 
     // 跳过当前有利情报
@@ -1669,6 +1758,7 @@ class Game {
 
         // 清理 NPC 勾选状态
         this.selectedNPCsForEvent.clear();
+        this.deselectedNPCs.clear();
     }
 
     // 渲染情报卡片
